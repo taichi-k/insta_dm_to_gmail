@@ -38,10 +38,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // 代表的には entry[].messaging[].message.text / sender.id 等。実際はパターンあり。
             const items: Array<{ senderId: string; text: string }> = []
             for (const entry of payload.entry ?? []) {
-                for (const change of entry.changes ?? []) {
-                    const text = change?.value?.message?.text
-                    const senderId = change?.value?.sender?.id
-                    if (senderId && typeof text === 'string') {
+                for (const m of entry.messaging ?? []) {
+                    const senderId = m?.sender?.id
+                    const text = m?.message?.text
+                    if (senderId && senderId !== "17841400653016045" &&typeof text === 'string') {
                         items.push({ senderId, text })
                     }
                 }
