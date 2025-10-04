@@ -74,7 +74,7 @@ async function sendMailViaResend(apiKey: string, to: string, items: Array<{ send
     const resend = new Resend(RESEND_API_KEY);
     try {
         const { data, error } = await resend.emails.send({
-            from: 'Tai <instagram_dm@tai.tokyo>',
+            from: 'インスタDM通知Bot <instagram_dm@tai.tokyo>',
             to: [to],
             subject: `Instagram DM (${items.length} new)`,
             text: items.map(i => `from=${i.senderId}\n\n${i.text}`).join('\n\n---\n\n'),
