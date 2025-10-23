@@ -2,7 +2,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import crypto from 'crypto'
 import getRawBody from 'raw-body'
-import { Resend } from 'resend';
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+
+const ses = new SESClient({
+    region: process.env.AWS_REGION ?? "us-east-1",
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,       // Vercel環境変数に設定
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,// Vercel環境変数に設定
+    },
+});
 
 export const config = {
     api: { bodyParser: false },
@@ -11,7 +19,6 @@ export const config = {
 const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN!
 const APP_SECRET = process.env.META_APP_SECRET!
 const FORWARD_TO = process.env.FORWARD_TO!
-const RESEND_API_KEY = process.env.RESEND_API_KEY!
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method === 'GET') {
@@ -48,7 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             if (items.length > 0) {
-                await sendMailViaResend(RESEND_API_KEY, FORWARD_TO, items)
+                await sendMailViaSES(FORWARD_TO, items)
             }
 
             return res.status(200).send('OK')
@@ -62,31 +69,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).end('Method Not Allowed')
 }
 
+export async function sendMailViaSES(
+    to: string,
+    items: Array<{ senderId: string; text: string }>
+) {
+    const from = 'インスタDM通知Bot <instagram_dm@tai.tokyo>'; // ← Verify必須
+    const subject = `Instagram DM (${items.length} new)`;
+    const text = items.map(i => `from=${i.senderId}\n\n${i.text}`).join('\n\n---\n\n');
+
+    const command = new SendEmailCommand({
+        Source: from,
+        Destination: { ToAddresses: [to] },
+        Message: {
+        Subject: { Data: subject, Charset: "UTF-8" },
+        Body: { Text: { Data: text, Charset: "UTF-8" } },
+        },
+    });
+
+    try {
+        const data = await ses.send(command);
+        console.log("Email sent successfully", { messageId: data.MessageId });
+        console.log(items.map(i => `from=${i.senderId}\n\n${i.text}`).join('\n\n---\n\n'))
+    } catch (e: any) {
+        console.error("Failed to send email via SES", e);
+        throw new Error(`SES send failed: ${e?.message ?? e}`);
+    }
+}
+
 function verifySignature(rawBody: Buffer, headerSig: string | undefined, appSecret: string) {
     if (!headerSig) return false
     const [scheme, provided] = headerSig.split('=')
     if (scheme !== 'sha256' || !provided) return false
     const expected = crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')
     return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
-}
-
-async function sendMailViaResend(apiKey: string, to: string, items: Array<{ senderId: string; text: string }>) {
-    const resend = new Resend(RESEND_API_KEY);
-    try {
-        const { data, error } = await resend.emails.send({
-            from: 'インスタDM通知Bot <instagram_dm@tai.tokyo>',
-            to: [to],
-            subject: `Instagram DM (${items.length} new)`,
-            text: items.map(i => `from=${i.senderId}\n\n${i.text}`).join('\n\n---\n\n'),
-        });
-        if (error) {
-            console.error('Resend API error', error);
-            throw new Error(`Resend API error: ${error.message}`);
-        }
-        console.log('Email sent successfully')
-        console.log(items.map(i => `from=${i.senderId}\n\n${i.text}`).join('\n\n---\n\n'))
-    } catch (e) {
-        console.error('Failed to send email via Resend', e)
-        throw e
-    }
 }
